@@ -1,0 +1,136 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  before_script: # defining script at the global level
+  #  - npm ci
+  #  - apk add curl
+
+stages:
+  - build
+  - compile
+  - test
+  - install-dependencies
+  - deploy_review
+  - deploy_stg
+  - deploy_prod
+
+build_website:
+  image: node:22-alpine
+  stage: build
+  script:
+    - node --version
+    - npm --version
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - build/
+
+upload_artifacts:
+  image: alpine
+  stage: compile
+  script:
+    - test -f build/index.html
+
+download_dependencies:
+  image: node:22-alpine
+  stage: install-dependencies
+  script:
+    - npm install
+
+run_unit_tests:
+  image: node:22-alpine
+  stage: test
+  script:
+    - npm ci
+    - npm test
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit.xml
+
+netlify_deploy_review:
+  image: node:22-alpine
+  stage: deploy_review
+  rules:
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+  environment:
+    name: preview/$CI_COMMIT_REF_SLUG
+    url: $REVIEW_URL
+  before_script:
+    - npm install -g netlify-cli@20.1.1
+    - apk add curl jq
+  #  - mkdir build
+  #  - echo "Test" > build/index.html
+  script:
+    - netlify --version
+    - netlify status
+    - echo "Deploying to site id $NETLIFY_SITE_ID"
+    - echo "Deploying to site auth token $NETLIFY_AUTH_TOKEN"
+    - netlify deploy --dir build --json | tee deploy-result.json
+    - REVIEW_URL=$(jq -r '.deploy_url' deploy-result.json)
+    - echo $REVIEW_URL
+    - curl $REVIEW_URL | grep 'GitLab CI/CD'
+    - echo "REVIEW_URL=$REVIEW_URL" > deploy.env
+    - cat deploy.env
+  artifacts:
+    reports:
+      dotenv: deploy.env
+
+docker_build_netlify:
+  stage: .pre
+  image: docker:28
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  services:
+    - docker:28-dind #(dind = docker in docker deamon)
+  script:
+    - docker --version
+    - docker version
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  #  - docker build -t netlify-img -f ci/Dockerfile .
+    - docker build -t $CI_REGISTRY_IMAGE/netlify-img -f ci/Dockerfile .
+    - docker tag $CI_REGISTRY_IMAGE/netlify-img $CI_REGISTRY_IMAGE/netlify:20.1.1
+    - docker image ls 
+    - docker push $CI_REGISTRY_IMAGE/netlify:20.1.1
+
+netlify_deploy_stg:
+  image: node:22-alpine
+  stage: deploy_stg
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  environment:
+    name: staging
+    url: 'https://staging--devops-gitlab.netlify.app/' 
+  before_script:
+    - npm install -g netlify-cli@20.1.1
+    - apk add curl
+  script:
+    - netlify --version
+    - netlify status
+    - echo "Deploying to site id $NETLIFY_SITE_ID"
+    - echo "Deploying to site auth token $NETLIFY_AUTH_TOKEN"
+    - netlify deploy --alias staging --dir build
+    - curl $CI_ENVIRONMENT_URL | grep 'GitLab'
+
+netlify_deploy_prod:
+  image: node:22-alpine
+  stage: deploy_prod
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  environment:
+    name: production
+    url: 'https://devops-gitlab.netlify.app/' 
+  before_script:
+    - npm install -g netlify-cli@20.1.1
+    - apk add curl
+  script:
+    - netlify --version
+    - netlify status
+    - echo "Deploying to site id $NETLIFY_SITE_ID"
+    - echo "Deploying to site auth token $NETLIFY_AUTH_TOKEN"
+    - netlify deploy --prod --dir build
+    - curl $CI_ENVIRONMENT_URL | grep 'GitLab'
