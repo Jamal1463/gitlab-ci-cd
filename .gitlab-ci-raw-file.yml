@@ -3,6 +3,9 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+variables:
+  VITE_APP_VERSION: $CI_COMMIT_SHORT_SHA
+
 default:
   before_script: # defining script at the global level
   #  - npm ci
@@ -13,6 +16,7 @@ stages:
   - compile
   - test
   - install-dependencies
+  - s3_upload
   - deploy_review
   - deploy_stg
   - deploy_prod
@@ -51,6 +55,18 @@ run_unit_tests:
     when: always
     reports:
       junit: reports/junit.xml
+
+aws_s3:
+  stage: s3_upload
+  image: 
+    name: amazon/aws-cli:2.27.45
+    entrypoint: ['']
+  script:
+    - aws --version
+    - aws s3 ls
+    - echo "<h1>This is coming from GitLab CI/CD Course</h1>" > index.html
+    - aws s3 cp index.html s3://sa-bucket-virginia123/index.html
+    - aws s3 sync ./build/ s3://sa-bucket-virginia123
 
 netlify_deploy_review:
   image: node:22-alpine
@@ -98,7 +114,7 @@ docker_build_netlify:
     - docker push $CI_REGISTRY_IMAGE/netlify:20.1.1
 
 netlify_deploy_stg:
-  image: $CI_REGISTRY_IMAGE/netlify:20.1.1
+  image: node:22-alpine
   stage: deploy_stg
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
@@ -117,7 +133,7 @@ netlify_deploy_stg:
     - curl $CI_ENVIRONMENT_URL | grep 'GitLab'
 
 netlify_deploy_prod:
-  image: $CI_REGISTRY_IMAGE/netlify:20.1.1
+  image: node:22-alpine
   stage: deploy_prod
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
