@@ -98,7 +98,7 @@ docker_build_netlify:
     - docker push $CI_REGISTRY_IMAGE/netlify:20.1.1
 
 netlify_deploy_stg:
-  image: node:22-alpine
+  image: $CI_REGISTRY_IMAGE/netlify:20.1.1
   stage: deploy_stg
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
@@ -117,7 +117,7 @@ netlify_deploy_stg:
     - curl $CI_ENVIRONMENT_URL | grep 'GitLab'
 
 netlify_deploy_prod:
-  image: node:22-alpine
+  image: $CI_REGISTRY_IMAGE/netlify:20.1.1
   stage: deploy_prod
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
